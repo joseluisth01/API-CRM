@@ -33,6 +33,19 @@
         }
         
         .logo {
+            display: flex;
+            align-items: center;
+        }
+        
+        .logo img {
+            height: 50px;
+            width: auto;
+            max-width: 200px;
+            object-fit: contain;
+        }
+        
+        /* Fallback si no hay imagen */
+        .logo-text {
             font-size: 36px;
             font-weight: 300;
             letter-spacing: 8px;
@@ -81,7 +94,13 @@
 <body>
     <div class="header">
         <div class="header-content">
-            <div class="logo">t/ctac</div>
+            <div class="logo">
+                <?php if (defined('LOGO_BLANCO') && file_exists($_SERVER['DOCUMENT_ROOT'] . '/api/assets/img/logoblanco.png')): ?>
+                    <img src="<?php echo LOGO_BLANCO; ?>" alt="<?php echo COMPANY_NAME; ?>">
+                <?php else: ?>
+                    <span class="logo-text">t/ctac</span>
+                <?php endif; ?>
+            </div>
             <?php if (isset($showBackButton) && $showBackButton): ?>
                 <a href="<?php echo BASE_URL; ?>" class="back-button">← Volver al Dashboard</a>
             <?php endif; ?>

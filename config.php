@@ -5,6 +5,12 @@
  */
 
 // ============================================
+// AUTENTICACIÓN
+// ============================================
+require_once __DIR__ . '/auth.php';
+verificarAutenticacion();
+
+// ============================================
 // CONFIGURACIÓN DEL CRM
 // ============================================
 define('CRM_URL', 'https://gestion-tictac-comunicacion.es/index.php/api');
@@ -29,7 +35,12 @@ define('FACTURAS_URL', BASE_URL . '/facturas');
 // CONFIGURACIÓN DE MARCA
 // ============================================
 define('COMPANY_NAME', 'Tictac Comunicación');
-define('COMPANY_LOGO', 'https://tictac-comunicacion.es/wp-content/uploads/2025/12/LOGO-1.png');
+
+// Logos (coloca logocolor.png y logoblanco.png en /assets/img/)
+define('LOGO_COLOR', BASE_URL . '/assets/img/logocolor.png');
+define('LOGO_BLANCO', BASE_URL . '/assets/img/logoblanco.png');
+
+// Colores corporativos
 define('BRAND_COLOR', '#E91E8C');
 define('BRAND_COLOR_DARK', '#C91E82');
 define('ACCENT_COLOR', '#C6D617');
@@ -83,6 +94,48 @@ function callCrmApi($endpoint, $method = 'GET', $data = null) {
     }
     
     return false;
+}
+
+/**
+ * Obtener artículos/items del CRM
+ * @return array Lista de artículos
+ */
+function getArticulosCRM() {
+    $articulos = array();
+    
+    // Intentar con diferentes endpoints según el CRM
+    $endpoints = ['items', 'invoice_items', 'estimate_items'];
+    
+    foreach ($endpoints as $endpoint) {
+        $response = callCrmApi($endpoint);
+        if ($response && is_array($response)) {
+            // Si es array directo
+            if (isset($response[0])) {
+                $articulos = $response;
+                break;
+            }
+            // Si está en data
+            if (isset($response['data']) && is_array($response['data'])) {
+                $articulos = $response['data'];
+                break;
+            }
+        }
+    }
+    
+    // Si no funciona, intentar cargar uno por uno
+    if (empty($articulos)) {
+        for ($id = 1; $id <= 100; $id++) {
+            $item = callCrmApi('items/' . $id);
+            if ($item && is_array($item) && !isset($item['error'])) {
+                // Verificar que no esté eliminado
+                if (!isset($item['deleted']) || $item['deleted'] == 0) {
+                    $articulos[] = $item;
+                }
+            }
+        }
+    }
+    
+    return $articulos;
 }
 
 /**

@@ -1,0 +1,43 @@
+# ============================================
+# PROTECCIÓN DEL DIRECTORIO /API
+# ============================================
+
+# Método 1: Permitir solo si viene del dominio del CRM
+# SetEnvIf Referer "^https://gestion-tictac-comunicacion\.es" allow_access=1
+# Order Deny,Allow
+# Deny from all
+# Allow from env=allow_access
+
+# Método 2: Proteger con IP (si tienes IP fija)
+# Order Deny,Allow
+# Deny from all
+# Allow from TU_IP_AQUI
+
+# Método 3: Verificar cookie de sesión (RECOMENDADO)
+RewriteEngine On
+RewriteBase /api/
+
+# Permitir acceso a archivos estáticos sin verificación
+RewriteCond %{REQUEST_URI} \.(css|js|jpg|jpeg|png|gif|ico|woff|woff2|ttf|svg)$ [NC]
+RewriteRule ^ - [L]
+
+# Verificar que exista cookie de sesión
+RewriteCond %{HTTP_COOKIE} !ci_session [NC]
+RewriteRule ^(.*)$ https://gestion-tictac-comunicacion.es/index.php/signin [R=302,L]
+
+# Si la cookie existe pero está vacía
+RewriteCond %{HTTP_COOKIE} ci_session=($|;) [NC]
+RewriteRule ^(.*)$ https://gestion-tictac-comunicacion.es/index.php/signin [R=302,L]
+
+# Proteger archivos sensibles
+<FilesMatch "(config\.php|auth\.php|\.json)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+# Prevenir listado de directorios
+Options -Indexes
+
+# Bloquear acceso directo a carpetas sensibles
+RedirectMatch 403 ^/api/includes/.*$
+RedirectMatch 403 ^/api/data/.*\.json$
