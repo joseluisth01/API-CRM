@@ -5,12 +5,78 @@
  */
 
 // ============================================
-// AUTENTICACIÓN
+// AUTENTICACIÓN - Verificación de sesión CRM
 // ============================================
-// TEMPORAL: Comentado porque el CRM usa cookies de CodeIgniter, no $_SESSION
-// La protección se hace mediante .htaccess verificando cookie ci_session
-// require_once __DIR__ . '/auth.php';
-// verificarAutenticacion();
+// mod_rewrite NO está activo en este servidor, así que el .htaccess no funciona.
+// La protección se hace aquí directamente desde PHP.
+// Esta función se ejecuta ANTES de cualquier otra cosa.
+
+function _verificarSesionCRM() {
+    $loginUrl = 'https://gestion-tictac-comunicacion.es/index.php/signin';
+    $crmHome = 'https://gestion-tictac-comunicacion.es/index.php';
+
+    // Si no hay cookie ci_session → no hay sesión, al login
+    if (!isset($_COOKIE['ci_session']) || trim($_COOKIE['ci_session']) === '') {
+        header('Location: ' . $loginUrl);
+        exit;
+    }
+
+    // Pasa la cookie ci_session al CRM y ve qué responde
+    $cookies = 'ci_session=' . $_COOKIE['ci_session'];
+    if (isset($_COOKIE['PHPSESSID'])) {
+        $cookies .= '; PHPSESSID=' . $_COOKIE['PHPSESSID'];
+    }
+
+    $ch = curl_init($crmHome);
+    curl_setopt($ch, CURLOPT_COOKIE, $cookies);
+    curl_setopt($ch, CURLOPT_NOBODY, true);              // Solo headers (HEAD), sin descargar cuerpo
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);     // No seguir redirects, queremos ver el 302
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] ?? 'Mozilla/5.0');
+
+    curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+    $curlError = curl_errno($ch);
+    curl_close($ch);
+
+    // 200 → logueado, sesión válida ✅
+    if ($httpCode === 200) {
+        return;
+    }
+
+    // 302 o 301 → ver a dónde redirige
+    if ($httpCode === 302 || $httpCode === 301) {
+        if ($redirectUrl && (strpos($redirectUrl, '/signin') !== false || strpos($redirectUrl, '/login') !== false)) {
+            // Redirige al login → sesión caducada ❌
+            header('Location: ' . $loginUrl);
+            exit;
+        }
+        // Redirect a otra URL del CRM → sesión válida ✅
+        return;
+    }
+
+    // 401 o 403 → no autenticado ❌
+    if ($httpCode === 401 || $httpCode === 403) {
+        header('Location: ' . $loginUrl);
+        exit;
+    }
+
+    // Error de curl (timeout, DNS, etc.) → dejamos pasar para no bloquear
+    // en caso de caída temporal del servidor del CRM
+    if ($curlError !== 0 || $httpCode === 0) {
+        return;
+    }
+
+    // Cualquier otro código inesperado → bloquear por precaución
+    header('Location: ' . $loginUrl);
+    exit;
+}
+
+// Ejecutar verificación INMEDIATAMENTE
+_verificarSesionCRM();
 
 // ============================================
 // CONFIGURACIÓN DEL CRM
@@ -62,10 +128,6 @@ date_default_timezone_set(SYSTEM_TIMEZONE);
 
 /**
  * Realizar llamada a la API del CRM
- * @param string $endpoint Endpoint de la API (ej: 'clients', 'clients/1')
- * @param string $method Método HTTP (GET, POST, PUT, DELETE)
- * @param array $data Datos a enviar (opcional)
- * @return array|false Respuesta decodificada o false en caso de error
  */
 function callCrmApi($endpoint, $method = 'GET', $data = null) {
     $url = CRM_URL . '/' . ltrim($endpoint, '/');
@@ -79,7 +141,6 @@ function callCrmApi($endpoint, $method = 'GET', $data = null) {
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     
-    // Configurar método
     if ($method !== 'GET') {
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         if ($data !== null) {
@@ -100,23 +161,19 @@ function callCrmApi($endpoint, $method = 'GET', $data = null) {
 
 /**
  * Obtener artículos/items del CRM
- * @return array Lista de artículos
  */
 function getArticulosCRM() {
     $articulos = array();
     
-    // Intentar con diferentes endpoints según el CRM
     $endpoints = ['items', 'invoice_items', 'estimate_items'];
     
     foreach ($endpoints as $endpoint) {
         $response = callCrmApi($endpoint);
         if ($response && is_array($response)) {
-            // Si es array directo
             if (isset($response[0])) {
                 $articulos = $response;
                 break;
             }
-            // Si está en data
             if (isset($response['data']) && is_array($response['data'])) {
                 $articulos = $response['data'];
                 break;
@@ -124,12 +181,10 @@ function getArticulosCRM() {
         }
     }
     
-    // Si no funciona, intentar cargar uno por uno
     if (empty($articulos)) {
         for ($id = 1; $id <= 100; $id++) {
             $item = callCrmApi('items/' . $id);
             if ($item && is_array($item) && !isset($item['error'])) {
-                // Verificar que no esté eliminado
                 if (!isset($item['deleted']) || $item['deleted'] == 0) {
                     $articulos[] = $item;
                 }
@@ -142,10 +197,6 @@ function getArticulosCRM() {
 
 /**
  * Guardar registro en archivo JSON de auditoría
- * @param string $tipo Tipo de acción (email_bienvenida, sistema, etc.)
- * @param string $estado Estado (enviado, error, ejecutado)
- * @param string $mensaje Mensaje descriptivo
- * @param array $datos Datos adicionales
  */
 function guardarAuditoria($tipo, $estado, $mensaje, $datos = array()) {
     $logFile = DATA_PATH . '/auditoria.json';
@@ -172,8 +223,6 @@ function guardarAuditoria($tipo, $estado, $mensaje, $datos = array()) {
 
 /**
  * Formatear fecha en español
- * @param string $fecha Fecha en formato SQL
- * @return string Fecha formateada
  */
 function formatearFecha($fecha) {
     if (empty($fecha)) return 'N/A';
@@ -184,18 +233,14 @@ function formatearFecha($fecha) {
 
 /**
  * Obtener tipo de cliente según sus grupos
- * @param array $cliente Datos del cliente
- * @return string Tipo: 'con_mantenimiento', 'sin_mantenimiento', 'inactivo'
  */
 function getTipoCliente($cliente) {
     $clientGroups = isset($cliente['client_groups']) ? strtolower($cliente['client_groups']) : '';
     
-    // Verificar si es inactivo
     if (strpos($clientGroups, 'inactivo') !== false) {
         return 'inactivo';
     }
     
-    // Verificar si tiene mantenimiento
     if (!empty($clientGroups)) {
         if (strpos($clientGroups, 'sin') !== false && strpos($clientGroups, 'mantenimiento') !== false) {
             return 'sin_mantenimiento';
@@ -210,7 +255,6 @@ function getTipoCliente($cliente) {
 
 /**
  * Redireccionar a una URL
- * @param string $url URL destino
  */
 function redirect($url) {
     header("Location: " . $url);
@@ -219,7 +263,6 @@ function redirect($url) {
 
 /**
  * Mostrar mensaje de error y terminar
- * @param string $mensaje Mensaje de error
  */
 function mostrarError($mensaje) {
     http_response_code(500);
@@ -229,8 +272,6 @@ function mostrarError($mensaje) {
 
 /**
  * Mostrar mensaje de éxito
- * @param string $mensaje Mensaje
- * @param array $datos Datos adicionales
  */
 function mostrarExito($mensaje, $datos = array()) {
     http_response_code(200);
@@ -241,3 +282,4 @@ function mostrarExito($mensaje, $datos = array()) {
     echo json_encode($response);
     exit;
 }
+?>
