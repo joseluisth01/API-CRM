@@ -7,8 +7,10 @@
 // ============================================
 // AUTENTICACIÓN
 // ============================================
-require_once __DIR__ . '/auth.php';
-verificarAutenticacion();
+// TEMPORAL: Comentado porque el CRM usa cookies de CodeIgniter, no $_SESSION
+// La protección se hace mediante .htaccess verificando cookie ci_session
+// require_once __DIR__ . '/auth.php';
+// verificarAutenticacion();
 
 // ============================================
 // CONFIGURACIÓN DEL CRM
